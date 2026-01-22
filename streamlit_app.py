@@ -15,7 +15,7 @@ import streamlit as st
 # Page config
 # ---------------------------
 st.set_page_config(
-    page_title="Family Workout",
+    page_title="Tony's Fitness Dojo: Workout Generator",
     page_icon="💪",
     layout="wide",
 )
@@ -631,8 +631,8 @@ st.markdown(
 <div class="hero">
   <div class="hero-top">
     <div>
-      <h1>💪 Family Workout</h1>
-      <p>Minimal look. Bold training. Personal “no-repeat” mains for <strong>{user_label}</strong>.</p>
+      <h1>💪 Tony's Fitness Dojo: Workout Generator</h1>
+      <p><strong>{user_label}</strong>.</p>
     </div>
     <div class="badge-row">
       <div class="badge">Storage: <strong>{st.session_state.get('backend_label','unknown')}</strong></div>

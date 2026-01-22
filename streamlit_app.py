@@ -632,7 +632,6 @@ st.markdown(
   <div class="hero-top">
     <div>
       <h1>💪 Tony's Fitness Dojo: Workout Generator</h1>
-      <p><strong>{user_label}</strong>.</p>
     </div>
     <div class="badge-row">
       <div class="badge">User: <strong>{user_label}</strong></div>

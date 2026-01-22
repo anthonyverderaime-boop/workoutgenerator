@@ -635,7 +635,6 @@ st.markdown(
       <p><strong>{user_label}</strong>.</p>
     </div>
     <div class="badge-row">
-      <div class="badge">Storage: <strong>{st.session_state.get('backend_label','unknown')}</strong></div>
       <div class="badge">User: <strong>{user_label}</strong></div>
     </div>
   </div>

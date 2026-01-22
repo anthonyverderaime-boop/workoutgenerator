@@ -678,7 +678,6 @@ with colA:
         except Exception as e:
             st.error(str(e))
 
-    st.markdown('<div class="muted">Tip: type your name in the sidebar if email is unavailable (local dev).</div>', unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
 
 with colB:

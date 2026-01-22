@@ -1,9 +1,19 @@
 {
-  "last_main": {
-    "push": [
-      "Bench Press"
-    ],
-    "pull": [],
-    "legs": []
+  "last_main_by_user": {
+    "_shared": {
+      "push": [
+        "Bench Press"
+      ],
+      "pull": [],
+      "legs": []
+    },
+    "name:tony": {
+      "push": [],
+      "pull": [],
+      "legs": [
+        "Back Squat",
+        "Leg Press"
+      ]
+    }
   }
 }

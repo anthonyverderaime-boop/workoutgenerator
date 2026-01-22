@@ -9,19 +9,16 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import requests
 import streamlit as st
-from typing import List, Sequence
-
 
 
 # ---------------------------
 # Page config
 # ---------------------------
 st.set_page_config(
-    page_title="Family Workout Generator",
+    page_title="Tony's Fitness Dojo: Workout Generator",
     page_icon="💪",
     layout="wide",
 )
-
 
 # ---------------------------
 # Constants / schema
@@ -34,17 +31,6 @@ DEFAULT_HISTORY_FILE = "workout_history.json"
 # ---------------------------
 # Helpers: validation
 # ---------------------------
-def filter_items(items: Sequence[str], query: str) -> List[str]:
-    terms = [t for t in query.casefold().split() if t.strip()]
-    if not terms:
-        return list(items)
-    out = []
-    for x in items:
-        x_cf = x.casefold()
-        if all(t in x_cf for t in terms):
-            out.append(x)
-    return out
-
 def validate_schema(data: dict) -> None:
     if not isinstance(data, dict):
         raise ValueError("Top-level data must be a JSON object.")
@@ -158,7 +144,7 @@ def apply_patch(doc: Any, ops: List[dict]) -> Any:
 
 
 # ---------------------------
-# Backend: GitHub storage (recommended for Streamlit Cloud persistence)
+# Backend: GitHub storage
 # ---------------------------
 @dataclass(frozen=True)
 class GitHubConfig:
@@ -171,25 +157,21 @@ class GitHubConfig:
 
 def get_github_config() -> Optional[GitHubConfig]:
     """
-    Reads GitHub config from Streamlit secrets if available, otherwise env vars.
-    IMPORTANT: st.secrets raises StreamlitSecretNotFoundError when no secrets.toml exists,
-    so we must guard access with try/except.
+    Safe secrets access: Streamlit throws if no secrets.toml exists.
     """
     secrets = None
     try:
-        secrets = st.secrets  # may raise if no secrets.toml
+        secrets = st.secrets
     except Exception:
         secrets = None
 
     def _get(key: str) -> Optional[str]:
-        # secrets.toml
         if secrets is not None:
             try:
                 if "github" in secrets and key in secrets["github"]:
                     return str(secrets["github"][key])
             except Exception:
                 pass
-        # environment variables
         return os.getenv(key)
 
     token = _get("GITHUB_TOKEN")
@@ -217,10 +199,6 @@ def _gh_headers(cfg: GitHubConfig) -> Dict[str, str]:
 
 
 def github_get_file(cfg: GitHubConfig, path: str) -> Tuple[dict, str]:
-    """
-    Returns: (json_content, sha)
-    Uses GitHub "contents" API. If file doesn't exist, raises.
-    """
     url = f"https://api.github.com/repos/{cfg.repo}/contents/{path}"
     params = {"ref": cfg.branch}
     r = requests.get(url, headers=_gh_headers(cfg), params=params, timeout=20)
@@ -235,7 +213,7 @@ def github_get_file(cfg: GitHubConfig, path: str) -> Tuple[dict, str]:
 def github_put_file(cfg: GitHubConfig, path: str, data: dict, sha: Optional[str], message: str) -> None:
     url = f"https://api.github.com/repos/{cfg.repo}/contents/{path}"
     raw = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-    body = {
+    body: Dict[str, Any] = {
         "message": message,
         "content": base64.b64encode(raw.encode("utf-8")).decode("utf-8"),
         "branch": cfg.branch,
@@ -248,13 +226,16 @@ def github_put_file(cfg: GitHubConfig, path: str, data: dict, sha: Optional[str]
 
 
 # ---------------------------
-# Local storage (dev-only / fallback)
+# Local storage (dev-only fallback)
 # ---------------------------
 def load_local_json(path: str, default: dict) -> dict:
     if not os.path.exists(path):
         return default
     with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
+        txt = f.read().strip()
+        if not txt:
+            return default
+        return json.loads(txt)
 
 
 def save_local_json(path: str, data: dict) -> None:
@@ -266,68 +247,217 @@ def save_local_json(path: str, data: dict) -> None:
 
 
 # ---------------------------
-# App state: load/save data + history
+# History: per-user schema + migration
 # ---------------------------
 def default_history(days: Sequence[str]) -> dict:
-    return {"last_main": {d: [] for d in days}}
+    # New schema: per-user
+    return {"last_main_by_user": {}}
 
 
+def ensure_history_schema(history: dict, days: Sequence[str]) -> dict:
+    """
+    Ensures history has:
+      history["last_main_by_user"][user_id][day] -> list[str]
+    Migrates old shared schema ("last_main") if present.
+    """
+    if not isinstance(history, dict):
+        history = {}
+
+    if "last_main_by_user" not in history or not isinstance(history["last_main_by_user"], dict):
+        history["last_main_by_user"] = {}
+
+    # Migration from old shared schema
+    old = history.get("last_main")
+    if isinstance(old, dict):
+        # preserve old behavior under a special key
+        history["last_main_by_user"].setdefault("_shared", {})
+        for d in days:
+            history["last_main_by_user"]["_shared"][d] = list(old.get(d, []))
+        history.pop("last_main", None)
+
+    # Ensure each user record is shaped correctly
+    for user_id, per_day in list(history["last_main_by_user"].items()):
+        if not isinstance(per_day, dict):
+            history["last_main_by_user"][user_id] = {d: [] for d in days}
+            continue
+        for d in days:
+            v = per_day.get(d, [])
+            history["last_main_by_user"][user_id][d] = list(v) if isinstance(v, list) else []
+
+    return history
+
+
+# ---------------------------
+# Load/save data & history (GitHub or local)
+# ---------------------------
 def load_data_and_history() -> Tuple[dict, dict, str]:
-    """
-    Returns (data, history, backend_label)
-    """
     cfg = get_github_config()
     if cfg:
         data, data_sha = github_get_file(cfg, cfg.data_path)
-        history, hist_sha = None, None
+
         try:
             history, hist_sha = github_get_file(cfg, cfg.history_path)
         except Exception:
-            # history might not exist yet
             history = default_history(list(data["days"].keys()))
             hist_sha = None
 
         st.session_state["_gh_data_sha"] = data_sha
         st.session_state["_gh_hist_sha"] = hist_sha
+
+        history = ensure_history_schema(history, list(data["days"].keys()))
         return data, history, f"GitHub: {cfg.repo}@{cfg.branch}"
 
-    # local fallback (note: not persistent on Community Cloud across restarts) :contentReference[oaicite:1]{index=1}
     data = load_local_json(DEFAULT_DATA_FILE, default={})
     if not data:
-        raise RuntimeError(f"Missing {DEFAULT_DATA_FILE}. Add it to your repo.")
+        raise RuntimeError(f"Missing {DEFAULT_DATA_FILE}. Add it next to streamlit_app.py.")
     history = load_local_json(DEFAULT_HISTORY_FILE, default=default_history(list(data["days"].keys())))
+    history = ensure_history_schema(history, list(data["days"].keys()))
     return data, history, "Local file (dev)"
 
 
-def save_data_and_history(data: dict, history: dict, message: str) -> None:
+def save_data_only(data: dict, message: str) -> None:
     cfg = get_github_config()
     if cfg:
-        # optimistic concurrency: include sha; if conflict occurs, reload and retry once
         data_sha = st.session_state.get("_gh_data_sha")
-        hist_sha = st.session_state.get("_gh_hist_sha")
-
-        # Save data
-        github_put_file(cfg, cfg.data_path, data, data_sha, message=f"{message} (data)")
-        # Refresh sha after write
-        new_data, new_data_sha = github_get_file(cfg, cfg.data_path)
-        st.session_state["_gh_data_sha"] = new_data_sha
-
-        # Save history
-        github_put_file(cfg, cfg.history_path, history, hist_sha, message=f"{message} (history)")
-        try:
-            _, new_hist_sha = github_get_file(cfg, cfg.history_path)
-            st.session_state["_gh_hist_sha"] = new_hist_sha
-        except Exception:
-            st.session_state["_gh_hist_sha"] = None
+        github_put_file(cfg, cfg.data_path, data, data_sha, message=message)
+        _, new_sha = github_get_file(cfg, cfg.data_path)
+        st.session_state["_gh_data_sha"] = new_sha
         return
-
-    # local fallback
     save_local_json(DEFAULT_DATA_FILE, data)
+
+
+def save_history_only(history: dict, message: str) -> None:
+    cfg = get_github_config()
+    if cfg:
+        hist_sha = st.session_state.get("_gh_hist_sha")
+        try:
+            github_put_file(cfg, cfg.history_path, history, hist_sha, message=message)
+            _, new_sha = github_get_file(cfg, cfg.history_path)
+            st.session_state["_gh_hist_sha"] = new_sha
+            return
+        except requests.HTTPError as e:
+            # If two people generate at the same time, we can merge and retry once
+            status = getattr(e.response, "status_code", None)
+            if status in (409, 422):
+                latest, latest_sha = github_get_file(cfg, cfg.history_path)
+                days = list(st.session_state["data"]["days"].keys())
+                latest = ensure_history_schema(latest, days)
+
+                # Merge per-user maps (ours overwrites same-user entries; preserves others)
+                merged = latest
+                merged.setdefault("last_main_by_user", {})
+                merged["last_main_by_user"].update(history.get("last_main_by_user", {}))
+
+                github_put_file(cfg, cfg.history_path, merged, latest_sha, message=message + " (merge)")
+                _, new_sha = github_get_file(cfg, cfg.history_path)
+                st.session_state["_gh_hist_sha"] = new_sha
+                st.session_state["history"] = merged
+                return
+            raise
     save_local_json(DEFAULT_HISTORY_FILE, history)
 
 
 # ---------------------------
-# Workout generation logic
+# User identity: per-person history key
+# ---------------------------
+def _get_user_email() -> Optional[str]:
+    """
+    Prefer st.user (new), fallback to st.experimental_user (older).
+    On Community Cloud, email is commonly available when the viewer is logged in. :contentReference[oaicite:1]{index=1}
+    """
+    # New API
+    try:
+        u = getattr(st, "user", None)
+        if u is not None:
+            email = None
+            try:
+                email = u.get("email")  # dict-like
+            except Exception:
+                email = getattr(u, "email", None)
+            if email:
+                return str(email).strip().lower()
+    except Exception:
+        pass
+
+    # Older API (may be deprecated over time) :contentReference[oaicite:2]{index=2}
+    try:
+        eu = getattr(st, "experimental_user", None)
+        if eu is not None:
+            email = None
+            try:
+                email = eu.get("email")
+            except Exception:
+                email = getattr(eu, "email", None)
+            if email:
+                return str(email).strip().lower()
+    except Exception:
+        pass
+
+    return None
+
+
+def _normalize_name_key(name: str) -> Optional[str]:
+    n = name.strip()
+    if not n:
+        return None
+    return "name:" + n.casefold()
+
+
+def get_or_choose_user_id(history: dict) -> Tuple[str, str]:
+    """
+    Returns (user_id_key, display_name).
+    If email is available, use it. Otherwise ask user to pick/enter a name.
+    """
+    email = _get_user_email()
+    if email:
+        return f"email:{email}", email
+
+    st.sidebar.markdown("### Who are you?")
+    known = sorted(
+        k for k in history.get("last_main_by_user", {}).keys()
+        if isinstance(k, str) and (k.startswith("name:"))
+    )
+    labels = ["(new)"] + [k.replace("name:", "") for k in known]
+
+    choice = st.sidebar.selectbox("Select your name", options=labels, index=0)
+    if choice == "(new)":
+        entered = st.sidebar.text_input("Type your name").strip()
+        key = _normalize_name_key(entered)
+        if key:
+            return key, entered
+        # temporary anonymous key (session only)
+        anon = st.session_state.setdefault("_anon_user_key", f"name:guest-{random.randint(1000,9999)}")
+        return anon, anon.replace("name:", "")
+    else:
+        key = _normalize_name_key(choice)
+        return key, choice
+
+
+# ---------------------------
+# Search helper
+# ---------------------------
+def filter_items(items: Sequence[str], query: str) -> List[str]:
+    terms = [t for t in query.casefold().split() if t.strip()]
+    if not terms:
+        return list(items)
+    out: List[str] = []
+    for x in items:
+        x_cf = x.casefold()
+        if all(t in x_cf for t in terms):
+            out.append(x)
+    return out
+
+
+def find_index_case_insensitive(items: Sequence[str], target: str) -> int:
+    t = target.strip().casefold()
+    for i, x in enumerate(items):
+        if x.strip().casefold() == t:
+            return i
+    return -1
+
+
+# ---------------------------
+# Workout generation (per-user history)
 # ---------------------------
 def pick_unique(rng: random.Random, pool: Sequence[str], n: int) -> Tuple[str, ...]:
     n = min(n, len(pool))
@@ -342,25 +472,27 @@ def pick_mains_no_repeat(rng: random.Random, pool: Sequence[str], n: int, last: 
     return tuple(rng.sample(candidates, k=n))
 
 
-def generate_workout(data: dict, history: dict, day: str, length: str) -> Tuple[str, dict]:
+def generate_workout(data: dict, history: dict, user_id: str, day: str, length: str) -> Tuple[str, dict]:
     cfg = data["lengths"][length]
     sec = data["days"][day]
 
-    last_main_all = history.get("last_main", {})
-    last_main = last_main_all.get(day, [])
+    history = ensure_history_schema(history, list(data["days"].keys()))
+    by_user = history.setdefault("last_main_by_user", {})
+    by_user.setdefault(user_id, {d: [] for d in data["days"].keys()})
+    last_main = by_user[user_id].get(day, [])
 
     rng = random.Random()
     mains = pick_mains_no_repeat(rng, sec["main"], cfg["mains"], last_main)
     accessories = pick_unique(rng, sec["accessory"], cfg["accessories"])
     finisher = rng.choice(sec["finisher"]) if cfg["finisher"] else None
 
-    # update history
-    history.setdefault("last_main", {})
-    history["last_main"][day] = list(mains)
+    # Update THIS USER only
+    by_user[user_id][day] = list(mains)
 
-    # format output
+    # Format output
     p = data["prescriptions"]
     lines = []
+    lines.append(f"User: {user_id}")
     lines.append(f"Day type: {day.capitalize()}")
     lines.append(f"Length: {length.capitalize()}")
     lines.append("")
@@ -379,39 +511,11 @@ def generate_workout(data: dict, history: dict, day: str, length: str) -> Tuple[
     return "\n".join(lines), history
 
 
-# ---------------------------
-# Auth (optional)
-# ---------------------------
-# def require_password() -> None:
-    # If APP_PASSWORD is set, require it; otherwise open access.
-    pw = None
-    if "APP_PASSWORD" in st.secrets:
-        pw = str(st.secrets["APP_PASSWORD"])
-    else:
-        pw = os.getenv("APP_PASSWORD")
+# =========================
+# App start
+# =========================
 
-    if not pw:
-        return
-
-    if st.session_state.get("auth_ok"):
-        return
-
-    st.title("🔒 Family Workout Generator")
-    entered = st.text_input("Enter password", type="password")
-    if st.button("Unlock", type="primary"):
-        if entered == pw:
-            st.session_state["auth_ok"] = True
-            st.rerun()
-        else:
-            st.error("Incorrect password.")
-
-
-# ---------------------------
-# UI: main
-# ---------------------------
-# require_password()
-
-# Load once per session; provide refresh button
+# Load once per session
 if "data" not in st.session_state or "history" not in st.session_state:
     data, history, backend_label = load_data_and_history()
     validate_schema(data)
@@ -419,14 +523,17 @@ if "data" not in st.session_state or "history" not in st.session_state:
     st.session_state["data"] = data
     st.session_state["history"] = history
     st.session_state["backend_label"] = backend_label
-    st.session_state["last_edit"] = None  # undo
-
+    st.session_state["last_edit"] = None  # undo for edits
+    st.session_state["last_workout"] = None
 
 data = st.session_state["data"]
 history = st.session_state["history"]
 
+# Determine per-user key
+user_id, user_label = get_or_choose_user_id(history)
+
 st.title("💪 Family Workout Generator")
-st.caption(f"Storage: {st.session_state.get('backend_label','unknown')}")
+st.caption(f"Storage: {st.session_state.get('backend_label','unknown')} • User: {user_label}")
 
 colA, colB = st.columns([1, 1], gap="large")
 
@@ -437,9 +544,9 @@ with colA:
 
     if st.button("Generate", type="primary"):
         try:
-            workout_text, new_history = generate_workout(data, history, day, length)
+            workout_text, new_history = generate_workout(data, history, user_id, day, length)
             st.session_state["history"] = new_history
-            save_data_and_history(st.session_state["data"], st.session_state["history"], message="Generate workout (update history)")
+            save_history_only(st.session_state["history"], message=f"Update history for {user_id}")
             st.session_state["last_workout"] = workout_text
             st.success("Workout generated.")
         except Exception as e:
@@ -460,7 +567,7 @@ with colA:
 
 with colB:
     st.subheader("Workout output")
-    workout_text = st.session_state.get("last_workout", "Generate a workout to see it here.")
+    workout_text = st.session_state.get("last_workout") or "Generate a workout to see it here."
     st.code(workout_text, language="text")
 
 
@@ -468,7 +575,7 @@ st.divider()
 tab_edit, tab_admin = st.tabs(["Edit exercises", "Admin"])
 
 with tab_edit:
-    st.subheader("Edit exercises (shared)")
+    st.subheader("Edit exercises (shared lists)")
 
     edit_col1, edit_col2 = st.columns([1, 1], gap="large")
 
@@ -485,7 +592,6 @@ with tab_edit:
             st.info("No matches.")
             chosen = None
         else:
-            # Streamlit selectbox supports typing search inside the widget, too.
             chosen = st.selectbox("Choose exercise to remove", options=filtered, key="r_choice")
 
         if st.button("Remove selected", type="secondary", disabled=(chosen is None)):
@@ -495,7 +601,6 @@ with tab_edit:
                     raise ValueError("Exercise not found (data changed). Refresh and try again.")
 
                 ops = [{"op": "remove", "path": f"/days/{r_day}/{r_section}/{idx}"}]
-                # Prepare undo (re-add at original index)
                 undo = {
                     "type": "remove",
                     "day": r_day,
@@ -511,7 +616,7 @@ with tab_edit:
 
                 st.session_state["data"] = updated
                 st.session_state["last_edit"] = undo
-                save_data_and_history(st.session_state["data"], st.session_state["history"], message="Edit exercises")
+                save_data_only(st.session_state["data"], message=f"Edit exercises by {user_id}")
                 st.success("Removed.")
                 st.rerun()
             except Exception as e:
@@ -540,14 +645,14 @@ with tab_edit:
 
                 st.session_state["data"] = updated
                 st.session_state["last_edit"] = undo
-                save_data_and_history(st.session_state["data"], st.session_state["history"], message="Edit exercises")
+                save_data_only(st.session_state["data"], message=f"Edit exercises by {user_id}")
                 st.success("Added.")
                 st.rerun()
             except Exception as e:
                 st.error(str(e))
 
     st.markdown("---")
-    st.markdown("#### Undo last edit")
+    st.markdown("#### Undo last edit (lists)")
     last_edit = st.session_state.get("last_edit")
     if not last_edit:
         st.caption("No edit to undo.")
@@ -584,7 +689,7 @@ with tab_edit:
 
                 st.session_state["data"] = updated
                 st.session_state["last_edit"] = None
-                save_data_and_history(st.session_state["data"], st.session_state["history"], message="Undo edit")
+                save_data_only(st.session_state["data"], message=f"Undo edit by {user_id}")
                 st.success("Undo complete.")
                 st.rerun()
             except Exception as e:
@@ -593,31 +698,16 @@ with tab_edit:
 
 with tab_admin:
     st.subheader("Admin / Notes")
-
     st.markdown(
         """
-- If you're on Streamlit Community Cloud, **writing to local files is not persistent across restarts**.  
-  Use the GitHub backend (below) or another external datastore to keep edits permanent. :contentReference[oaicite:2]{index=2}
-- Use Streamlit **Secrets Management** for passwords and GitHub tokens. :contentReference[oaicite:3]{index=3}
+- “No-repeat mains” is now **per user**:
+  - Preferred ID: logged-in email via `st.user.email` (or fallback `st.experimental_user.email`). :contentReference[oaicite:3]{index=3}
+  - Local dev fallback: select/enter a name in the sidebar.
+- Exercise edits are shared (everyone sees the same lists).
 """
     )
-
-    st.markdown("### Current config (detected)")
-    cfg = get_github_config()
-    if cfg:
-        st.success("Using GitHub storage backend.")
-        st.json(
-            {
-                "repo": cfg.repo,
-                "branch": cfg.branch,
-                "data_path": cfg.data_path,
-                "history_path": cfg.history_path,
-            }
-        )
-    else:
-        st.warning("Using local file backend (good for local dev; not reliable for Cloud persistence).")
-        st.code(
-            f"Expected files: {DEFAULT_DATA_FILE}, {DEFAULT_HISTORY_FILE}\n"
-            "To enable GitHub storage, set secrets: github.GITHUB_TOKEN and github.GITHUB_REPO",
-            language="text",
-        )
+    st.markdown("### Current backend")
+    st.code(st.session_state.get("backend_label", "unknown"), language="text")
+    st.markdown("### Known users in history file")
+    users = sorted((st.session_state["history"].get("last_main_by_user", {}) or {}).keys())
+    st.write(users if users else "(none yet)")

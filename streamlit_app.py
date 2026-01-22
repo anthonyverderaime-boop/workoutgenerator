@@ -818,8 +818,6 @@ with tab_admin:
     st.markdown('<div class="section-title">Admin</div>', unsafe_allow_html=True)
     st.markdown(
         """
-- **Look:** Apple-like minimal cards + bold workout actions.
-- **History:** No-repeat mains are **per user** (email when available, otherwise name from sidebar).
 - **Edits:** Exercise lists are shared.
 """
     )

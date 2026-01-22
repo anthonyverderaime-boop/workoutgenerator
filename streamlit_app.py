@@ -532,7 +532,7 @@ history = st.session_state["history"]
 # Determine per-user key
 user_id, user_label = get_or_choose_user_id(history)
 
-st.title("💪 Family Workout Generator")
+st.title("💪 Tony's Fitness Dojo: Workout Generator  💪")
 st.caption(f"Storage: {st.session_state.get('backend_label','unknown')} • User: {user_label}")
 
 colA, colB = st.columns([1, 1], gap="large")

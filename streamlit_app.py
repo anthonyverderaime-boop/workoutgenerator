@@ -706,8 +706,6 @@ tab_edit, tab_admin = st.tabs(["Edit exercises", "Admin"])
 with tab_edit:
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown('<div class="section-title">Edit exercises</div>', unsafe_allow_html=True)
-    st.markdown('<div class="muted">Edits are shared across the family. “No-repeat” history is per person.</div>', unsafe_allow_html=True)
-
     edit_col1, edit_col2 = st.columns([1, 1], gap="large")
 
     with edit_col1:

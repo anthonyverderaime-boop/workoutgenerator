@@ -14,6 +14,13 @@
         "Back Squat",
         "Leg Press"
       ]
+    },
+    "name:guest-6941": {
+      "push": [
+        "Push-ups (weighted if possible)"
+      ],
+      "pull": [],
+      "legs": []
     }
   }
 }

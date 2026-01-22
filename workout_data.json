@@ -1,0 +1,89 @@
+{
+  "prescriptions": {
+    "main": "4 sets x 5–8 reps (challenging but clean). Rest 2 min.",
+    "accessory": "3 sets x 10–15 reps. Rest 60–90 sec.",
+    "finisher": "Keep form strict. Stop 1–2 reps before failure."
+  },
+  "lengths": {
+    "short": {
+      "mains": 1,
+      "accessories": 2,
+      "finisher": true
+    },
+    "medium": {
+      "mains": 1,
+      "accessories": 3,
+      "finisher": true
+    },
+    "long": {
+      "mains": 2,
+      "accessories": 4,
+      "finisher": true
+    }
+  },
+  "days": {
+    "push": {
+      "main": [
+        "Bench Press",
+        "Incline Dumbbell Press",
+        "Close-Grip Bench Press",
+        "Push-ups (weighted if possible)"
+      ],
+      "accessory": [
+        "Dumbbell Shoulder Press",
+        "Dumbbell Lateral Raises",
+        "Chest Fly (cables or dumbbells)",
+        "Dips (assisted if needed)",
+        "Triceps Pushdown",
+        "Overhead Triceps Extension"
+      ],
+      "finisher": [
+        "Push-up ladder (1-2-3-4-5 and back down)",
+        "3 rounds: 30s incline push-ups + 30s rest",
+        "AMRAP 6 minutes: push-ups + dips (alternate)"
+      ]
+    },
+    "pull": {
+      "main": [
+        "Pull-ups (assisted if needed)",
+        "Lat Pulldown",
+        "Barbell Row",
+        "One-Arm Dumbbell Row"
+      ],
+      "accessory": [
+        "Seated Cable Row",
+        "Chest-Supported Row",
+        "Face Pulls",
+        "Rear Delt Fly",
+        "Barbell Curl",
+        "Hammer Curl"
+      ],
+      "finisher": [
+        "EMOM 8 minutes: 8 rows (moderate) + 8 curls (light)",
+        "3 rounds: 12 band pull-aparts + 10 curls",
+        "AMRAP 6 minutes: rows + rear delts (alternate)"
+      ]
+    },
+    "legs": {
+      "main": [
+        "Back Squat",
+        "Front Squat",
+        "Leg Press",
+        "Romanian Deadlift"
+      ],
+      "accessory": [
+        "Walking Lunges",
+        "Bulgarian Split Squat",
+        "Leg Extension",
+        "Hamstring Curl",
+        "Calf Raises",
+        "Glute Bridge / Hip Thrust"
+      ],
+      "finisher": [
+        "3 rounds: 12 goblet squats + 12 lunges (each leg)",
+        "EMOM 8 minutes: 12 bodyweight squats",
+        "AMRAP 6 minutes: lunges + calf raises (alternate)"
+      ]
+    }
+  }
+}
